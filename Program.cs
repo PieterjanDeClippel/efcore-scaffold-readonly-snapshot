@@ -1,6 +1,9 @@
 using System.Reflection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.EntityFrameworkCore.Migrations.Design;
 using Microsoft.Extensions.DependencyInjection;
 using Repro;
@@ -49,6 +52,11 @@ static ScaffoldedMigration Scaffold(AppDb db)
     var designTimeServices = (IDesignTimeServices)Activator.CreateInstance(
         providerAssembly.GetType(attribute.TypeName, throwOnError: true)!)!;
     designTimeServices.ConfigureDesignTimeServices(services);
+
+    // The workaround (fix branch): the scaffolder gets its own snapshot instance, never the one the context's
+    // migrator finalized in HasPendingModelChanges() or Migrate().
+    var sharedAssembly = db.GetService<IMigrationsAssembly>();
+    services.Replace(ServiceDescriptor.Singleton<IMigrationsAssembly>(new FreshSnapshotMigrationsAssembly(sharedAssembly)));
 
     using var provider = services.BuildServiceProvider();
     return provider.GetRequiredService<IMigrationsScaffolder>().ScaffoldMigration("AddEmail", "Repro");

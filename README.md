@@ -37,7 +37,26 @@ context makes the scaffolder emit a migration that recreates the table, without 
 `DummyModelRuntimeInitializer`, which never finalizes the model; with the real initializer the second call returns
 `null`.
 
-## Fix
+## Fix (this branch)
 
-See the [`fix`](../../tree/fix) branch: a workaround that works on EF Core 11.0.0 today, and the proposed change to
-EF Core.
+**Workaround, EF Core 11.0.0 as released:** [`FreshSnapshotMigrationsAssembly`](FreshSnapshotMigrationsAssembly.cs)
+wraps the context's `IMigrationsAssembly` in the design-time services and gives the scaffolder its own instance of
+the snapshot class. That instance builds a new, mutable model, which the processor upgrades and finalizes as
+usual. With it, `dotnet run` passes both scenarios:
+
+```
+OK   fresh context: 1 AddColumn, 0 CreateTable
+HasPendingModelChanges() = True
+OK   same context, after HasPendingModelChanges(): 1 AddColumn, 0 CreateTable
+```
+
+**Proposed EF Core change:** [`upstream/efcore-release-11.0.patch`](upstream/efcore-release-11.0.patch), against
+`release/11.0` (applies cleanly with `git apply`). `MigrationsScaffolder` does the same thing internally:
+`ScaffoldMigration` and `RemoveMigration` take a new snapshot instance when the shared one's model is already
+finalized. It is a fresh instance rather than returning the finalized model from `SnapshotModelProcessor`, because
+the migrator finalizes the snapshot **without** processing it: a snapshot written by an older EF version would then
+skip the annotation upgrades the processor exists for. The patch has not been built or run in EF's own test suite;
+the workaround above is the same logic, outside EF.
+
+A regression test would finalize the snapshot model before scaffolding (with the real `IModelRuntimeInitializer`,
+not `DummyModelRuntimeInitializer`) and assert that the scaffolded operations are the incremental ones.
